@@ -43,11 +43,11 @@ def save_dataset(bases, variants, scores, path="dataset.pkl"):
 
 base_cfg = Config()                     # כפי שהגדרת
 ladder = [
-    dict(noise_max=0.10, spike_max=1,   warp_max=1.0),   # M1 – כמעט זהה
-    dict(noise_max=0.25, spike_max=2,   warp_max=1.10),   # M2
-    dict(noise_max=0.40, spike_max=3,   warp_max=1.25),   # M3
-    dict(noise_max=0.60, spike_max=4,   warp_max=1.30),   # M4
-    dict(noise_max=1.80, spike_max=5,   warp_max=1.55),   # M5 – הכי שונה
+    dict(noise_max=0.10, spike_max=1,   warp_max=10),   # M1 – כמעט זהה
+    dict(noise_max=0.25, spike_max=2,   warp_max=20),   # M2
+    dict(noise_max=0.40, spike_max=3,   warp_max=30),   # M3
+    dict(noise_max=0.60, spike_max=4,   warp_max=40),   # M4
+    dict(noise_max=1.80, spike_max=5,   warp_max=50),   # M5 – הכי שונה
 ]
 cfgs = []
 for lvl in ladder:

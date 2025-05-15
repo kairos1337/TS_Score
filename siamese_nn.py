@@ -11,6 +11,7 @@ import torch.nn.functional as F
 from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
 from scipy.stats import pearsonr, spearmanr
 
+
 class SiameseTimeSeriesDataset(Dataset):
     def __init__(self, bases, variants, scores):
         self.bases = [torch.tensor(b, dtype=torch.float32) for b in bases]
