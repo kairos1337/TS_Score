@@ -155,8 +155,7 @@ def add_time_wrapping(x: np.ndarray,
     """
     ts_len   = len(x)
     seg_frac = rng.integers(10, 90)/100.0
-    if seg_frac ==  0.01:
-        print("here i s top")
+
     if seg_frac >= 0.5:
         index = int(ts_len /2 -1)
 
@@ -167,7 +166,6 @@ def add_time_wrapping(x: np.ndarray,
     p_noise_abs = 1
     p_size = (seg_len / ts_len)
     p_size = exp_scaled(p_size,2.8)
-    print(f"p_size: {p_size}")
 
     choices = []
     if index - seg_len >= 0:           choices.append("backward")
@@ -176,7 +174,6 @@ def add_time_wrapping(x: np.ndarray,
         choices.append("around")
     mode = random.choice(choices)
     new_x, p = replace_with_average_np(x,base, index, seg_len, mode)
-    print(f"p: {p}")
     p_size = (p_size  *(p+0.2))
 
     penalties.append(cfg.w_noise * p_noise_abs * p_size)
@@ -209,7 +206,7 @@ def inject_spikes(x, penalties, cfg, rng, mag_range=(1.5, 2.5), eps=1e-6):
 def add_noise(penalties,rng,cfg, x2):
     iqr = np.subtract(*np.percentile(x2, [75, 25]))
     sigma = rng.uniform(0, cfg.noise_max) * iqr
-    pct = 0.5
+    pct = 0.7
     n = x2.size
     k = int(round(pct * n))
     idx = rng.choice(n, k, replace=False)
@@ -239,7 +236,7 @@ def synth_pair(base: np.ndarray, cfg: Config):
     penalties.append(cfg.w_shift * abs(dt))
 
 
-    #x2 = add_noise(penalties,rng,cfg,x2)
+    x2 = add_noise(penalties,rng,cfg,x2)
     #print(f"penalty for noise : {penalties[1]} penalty for time wrapping : {penalties[2]}")
     #x2= inject_spikes(x2,penalties,cfg,rng)
     x2 = add_time_wrapping(x2,x1,cfg,penalties,rng) # IMPORTANT : I might add noise and then delete all this part at time wrapping, so there is a situation the ts is been punished for nothing
@@ -271,7 +268,6 @@ def build_dataset_progressive(cfg_list,
         range_ = max_val - min_val + 1e-8
         base = (base - min_val) / range_
         bases.append(base)
-        print(f"----------this is the {i} base----------")
 
         vars_row, scores_row = [], []
         for cfg in cfg_list:

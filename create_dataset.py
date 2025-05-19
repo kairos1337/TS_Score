@@ -58,7 +58,7 @@ for lvl in ladder:
     cfgs.append(cfg_i)
 bases, vars_, scrs = generate_large_dataset(cfgs,
                                              base_len=30,
-                                             n_bases=10_000,
+                                             n_bases=100_000,
                                              rng_seed=123)
 
 save_dataset(bases, vars_, scrs, path="synthetic_similarity_dataset.pkl")

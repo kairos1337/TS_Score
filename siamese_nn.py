@@ -1,5 +1,8 @@
+import ast
+import json
 import pickle
 
+import numpy as np
 import torch
 from matplotlib import pyplot as plt
 from torch.nn.utils.rnn import pad_sequence
@@ -10,10 +13,13 @@ import torch
 import torch.nn.functional as F
 from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
 from scipy.stats import pearsonr, spearmanr
+import caerus_utils as cutils
 
 
 class SiameseTimeSeriesDataset(Dataset):
-    def __init__(self, bases, variants, scores):
+    def __init__(self, bases, variants, scores, is_single_variant=False):
+        self.is_single_variant = is_single_variant
+
         self.bases = [torch.tensor(b, dtype=torch.float32) for b in bases]
         self.variants = [[torch.tensor(v, dtype=torch.float32) for v in vs] for vs in variants]
         self.scores = torch.tensor(scores, dtype=torch.float32)
@@ -27,6 +33,7 @@ class SiameseTimeSeriesDataset(Dataset):
         return len(self.pairs)
 
     def __getitem__(self, idx):
+
         i, j = self.pairs[idx]
         return self.bases[i], self.variants[i][j], self.scores[i][j]
 
@@ -39,11 +46,13 @@ def siamese_collate(batch):
     return b1_pad, b2_pad, mask1, mask2, torch.stack(y)
 
 class TimeSeriesEncoder(nn.Module):
-    def __init__(self, hidden_dim=64):
+    def __init__(self, hidden_dim=128):
         super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv1d(1, 32, kernel_size=5, padding=2), nn.ReLU(),
-            nn.Conv1d(32, hidden_dim, kernel_size=5, padding=2), nn.ReLU()
+            nn.Conv1d(1, 32, kernel_size=5, padding=2),nn.BatchNorm1d(32), nn.ReLU(),nn.Dropout(0.05),
+            nn.Conv1d(32, 64, kernel_size=5, padding=2), nn.BatchNorm1d(64), nn.ReLU(), nn.Dropout(0.05),
+            nn.Conv1d(64, hidden_dim, kernel_size=5, padding=2), nn.BatchNorm1d(hidden_dim), nn.ReLU(),nn.Dropout(0.05),
+
         )
         self.pool = nn.AdaptiveAvgPool1d(1)
 
@@ -54,20 +63,37 @@ class TimeSeriesEncoder(nn.Module):
         return x
 
 class SiameseNet(nn.Module):
-    def __init__(self, encoder , hidden_dim=64):
+    def __init__(self, encoder , hidden_dim=128):
         super().__init__()
         self.encoder = encoder
         self.head = nn.Sequential(
-            nn.Linear(2 * hidden_dim, 64),
+            nn.Linear(2 * hidden_dim, hidden_dim),
             nn.ReLU(),
-            nn.Linear(64, 1)
+            nn.Dropout(0.05),
+            nn.Linear(hidden_dim, 64),
+            nn.ReLU(),
+            nn.Dropout(0.05),
+            nn.Linear(64, 32),
+            nn.ReLU(),
+            nn.Dropout(0.05),
+            nn.Linear(32, 16),
+            nn.ReLU(),
+            nn.Dropout(0.05),
+            nn.Linear(16, 1)
         )
 
     def forward(self, x1, x2, len1, len2):
+        if torch.rand(1) < 0.5:
+            x1, x2 = x2, x1
+            len1, len2 = len2, len1
+
+        # 2) encode both
         z1 = self.encoder(x1, len1)
         z2 = self.encoder(x2, len2)
+
+        # 3) concatenate and head
         z = torch.cat([z1, z2], dim=1)
-        return self.head(z).squeeze(1)  # output shape: [B]
+        return self.head(z).squeeze(1)
 
 def train(model, dataloader, optimizer, device, epochs=10):
     model.train()
@@ -122,39 +148,86 @@ def evaluate_with_metrics(model, dataloader, device):
 
 
 
+def create_data_from_pickle():
+    with open("synthetic_similarity_dataset.pkl", "rb") as f:
+        data = pickle.load(f)
 
-with open("synthetic_similarity_dataset.pkl", "rb") as f:
-    data = pickle.load(f)
+    bases = data["bases"][:1000]
+    variants = data["variants"][:1000]
+    scores = data["scores"][:1000]
+    scores = np.array(scores)
+    dataset = SiameseTimeSeriesDataset(bases, variants, scores,False)
+    scores_np = dataset.scores.numpy()
+    thresh = np.percentile(scores_np, 99)
 
-bases    = data["bases"]      # np.ndarray בגודל (10000, T)
-variants = data["variants"]   # רשימת רשימות של np.ndarray באורכים משתנים
-scores   = data["scores"]     # np.ndarray בגודל (10000, 5)
+    dataset.pairs = [
+        (i, j)
+        for (i, j) in dataset.pairs
+        if scores_np[i, j] <= thresh
+    ]
+    return dataset
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-dataset = SiameseTimeSeriesDataset(bases, variants, scores)
+
+def create_data_from_df(df):
+    """
+    df must have columns:
+      - 'head_norm_y'  : strings like "[0.1, 0.2, …]"
+      - 'ocr_norm_y'   : same shape
+      - 'visual_score' : float in [0,1]
+    Returns three lists: bases, variants, scores
+
+    """
+    bases, variants, scores, variants2 = [], [], [], []
+    df['head_norm_y'] = df['head_norm_y'].apply(json.loads)
+    df['ocr_norm_y'] = df['ocr_norm_y'].apply(json.loads)
+    bases = [val for val in df['head_norm_y']]
+    scores = [[value] for value in df['visual_score']]
+    scores = np.array(scores)
+    for i in range(len(bases)):
+        variants.append([df['ocr_norm_y'][i]])
+
+    dataset = SiameseTimeSeriesDataset(bases, variants, scores)
+    return dataset
+
+
+def plot_test_results():
+    plt.figure(figsize=(6, 6))
+    plt.scatter(true_vals, pred_vals, alpha=0.4)
+    plt.plot([0, 1], [0, 1], 'r--')
+    plt.xlabel("True Score")
+    plt.ylabel("Predicted Score")
+    plt.title("Validation Predictions vs True Scores")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+
+
+conn = cutils.DbConnection()
+conn.connect()
+df = conn.get_ocrs_and_scores()
+dataset= create_data_from_df(df)
+#dataset = create_data_from_pickle()
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print("Device:", device)
 
 
 total_len = len(dataset)
-val_size = int(0.1 * total_len)
+val_size = int(0.05 * total_len)
 train_size = total_len - val_size
 train_set, val_set = random_split(dataset, [train_size, val_size], generator=torch.Generator().manual_seed(42))
-train_loader = DataLoader(train_set, batch_size=64, shuffle=True, collate_fn=siamese_collate)
-val_loader   = DataLoader(val_set, batch_size=64, shuffle=False, collate_fn=siamese_collate)
+train_loader = DataLoader(train_set, batch_size=1028, shuffle=True, collate_fn=siamese_collate, num_workers=4, pin_memory=True)
+val_loader   = DataLoader(val_set, batch_size=1028, shuffle=False, collate_fn=siamese_collate,    num_workers=4,pin_memory=True)
 
-encoder = TimeSeriesEncoder(hidden_dim=64)
-model = SiameseNet(encoder, hidden_dim=64).to(device)
+encoder = TimeSeriesEncoder(hidden_dim=128)
+model = SiameseNet(encoder, hidden_dim=128).to(device)
 optimizer = torch.optim.Adam(model.parameters(), lr=1e-3)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.8)
 
-train(model, train_loader, optimizer, device, epochs=20)
+train(model, train_loader, optimizer, device, epochs=5)
 metrics, pred_vals, true_vals = evaluate_with_metrics(model, val_loader, device)
+
 for name, val in metrics.items():
     print(f"{name:12s}: {val:.4f}")
-plt.figure(figsize=(6, 6))
-plt.scatter(true_vals, pred_vals, alpha=0.4)
-plt.plot([0, 1], [0, 1], 'r--')
-plt.xlabel("True Score")
-plt.ylabel("Predicted Score")
-plt.title("Validation Predictions vs True Scores")
-plt.grid(True)
-plt.tight_layout()
-plt.show()
+
+plot_test_results()
