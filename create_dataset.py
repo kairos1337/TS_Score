@@ -43,23 +43,24 @@ def save_dataset(bases, variants, scores, path="dataset.pkl"):
 
 base_cfg = Config()                     # כפי שהגדרת
 ladder = [
-    dict(noise_max=0.10, spike_max=1,   warp_max=10),   # M1 – כמעט זהה
-    dict(noise_max=0.25, spike_max=2,   warp_max=20),   # M2
-    dict(noise_max=0.40, spike_max=3,   warp_max=30),   # M3
-    dict(noise_max=0.60, spike_max=4,   warp_max=40),   # M4
-    dict(noise_max=1.80, spike_max=5,   warp_max=50),   # M5 – הכי שונה
+    dict(noise_max=1.20, noise_min=1.10, spike_max=1, warp_max=0.10),  # M1 – כמעט זהה
+    dict(noise_max=2.30, noise_min=2.20, spike_max=1, warp_max=0.20),  # M2
+    dict(noise_max=3.40, noise_min=3.30, spike_max=2, warp_max=0.30),  # M3
+    dict(noise_max=5.50, noise_min=4.4, spike_max=3, warp_max=0.40),  # M4
+    dict(noise_max=8.60, noise_min=5.50, spike_max=4, warp_max=0.55),  # M5 – הכי שונה
 ]
 cfgs = []
 for lvl in ladder:
     cfg_i = deepcopy(base_cfg)
     cfg_i.noise_max = lvl["noise_max"]
+    cfg_i.noise_min = lvl["noise_min"]
     cfg_i.spike_max = lvl["spike_max"]
     cfg_i.warp_max  = lvl["warp_max"]
     cfgs.append(cfg_i)
 bases, vars_, scrs = generate_large_dataset(cfgs,
-                                             base_len=30,
+                                             base_len=8,
                                              n_bases=100_000,
                                              rng_seed=123)
 
-save_dataset(bases, vars_, scrs, path="synthetic_similarity_dataset.pkl")
+save_dataset(bases, vars_, scrs, path="synthetic_similarity_dataset2.pkl")
 

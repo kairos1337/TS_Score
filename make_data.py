@@ -17,13 +17,15 @@ from numpy import ndarray, dtype
 @dataclass
 class Config:
     w_shift: float = 0.05
-    w_warp:  float = 0.02
+    w_warp:  float = 0.15
     noise_max: float = 0.8          # as fraction of IQR
     w_noise:  float = 0.2
+    noise_min : float = 0.05
 
     spike_max: int = 3
     w_spike:  float = 0.05
     warp_max: float = 0.5
+    warp_min: float = 0.5
     seg_frac_min: float = 0.2
     seg_frac_max: float = 0.4
     rng: np.random.Generator = np.random.default_rng()
@@ -154,18 +156,15 @@ def add_time_wrapping(x: np.ndarray,
     :param eps:       small constant to avoid division by zero
     """
     ts_len   = len(x)
-    seg_frac = rng.integers(10, 90)/100.0
+    seg_frac = cfg.warp_max
 
     if seg_frac >= 0.5:
         index = int(ts_len /2 -1)
 
     else:
         index  = int(rng.integers(0, ts_len))  # where to apply
-    mode      = None
     seg_len = max(2, int(ts_len * seg_frac))
-    p_noise_abs = 1
-    p_size = (seg_len / ts_len)
-    p_size = exp_scaled(p_size,2.8)
+    p_size = exp_scaled(seg_frac,2.8)
 
     choices = []
     if index - seg_len >= 0:           choices.append("backward")
@@ -176,7 +175,7 @@ def add_time_wrapping(x: np.ndarray,
     new_x, p = replace_with_average_np(x,base, index, seg_len, mode)
     p_size = (p_size  *(p+0.2))
 
-    penalties.append(cfg.w_noise * p_noise_abs * p_size)
+    penalties.append(cfg.w_warp  * p_size)
 
     return new_x
 
@@ -204,8 +203,9 @@ def inject_spikes(x, penalties, cfg, rng, mag_range=(1.5, 2.5), eps=1e-6):
 
 
 def add_noise(penalties,rng,cfg, x2):
+
     iqr = np.subtract(*np.percentile(x2, [75, 25]))
-    sigma = rng.uniform(0, cfg.noise_max) * iqr
+    sigma = rng.uniform(cfg.noise_min, cfg.noise_max) * iqr
     pct = 0.7
     n = x2.size
     k = int(round(pct * n))
@@ -224,8 +224,7 @@ def synth_pair(base: np.ndarray, cfg: Config):
     x1 = base.copy()
     x2 = base.copy()
     penalties = []
-    max_shift = int(len(x1) * 0.10)
-    dt =  rng.integers(-max_shift, max_shift+1)
+
     dt = 0
 
     if dt < 0:
@@ -239,7 +238,7 @@ def synth_pair(base: np.ndarray, cfg: Config):
     x2 = add_noise(penalties,rng,cfg,x2)
     #print(f"penalty for noise : {penalties[1]} penalty for time wrapping : {penalties[2]}")
     #x2= inject_spikes(x2,penalties,cfg,rng)
-    x2 = add_time_wrapping(x2,x1,cfg,penalties,rng) # IMPORTANT : I might add noise and then delete all this part at time wrapping, so there is a situation the ts is been punished for nothing
+    #x2 = add_time_wrapping(x2,x1,cfg,penalties,rng) # IMPORTANT : I might add noise and then delete all this part at time wrapping, so there is a situation the ts is been punished for nothing
 
     #print(f"spikes penalty: {penalty}")
 
@@ -327,26 +326,29 @@ def plot_progressive(bases, vars_, scores):
 def make():
     base_cfg = Config()                     # כפי שהגדרת
     ladder = [
-        dict(noise_max=0.10, spike_max=1,   warp_max=10),   # M1 – כמעט זהה
-        dict(noise_max=0.25, spike_max=1,   warp_max=20),   # M2
-        dict(noise_max=0.40, spike_max=2,   warp_max=35),   # M3
-        dict(noise_max=0.60, spike_max=3,   warp_max=50),   # M4
-        dict(noise_max=1.80, spike_max=4,   warp_max=70),   # M5 – הכי שונה
+        dict(noise_max=1.20, warp_min=0.1, noise_min=0.1, spike_max=1,   warp_max=0.10),   # M1 – כמעט זהה
+        dict(noise_max=2.30, warp_min=0.2, noise_min=0.2, spike_max=1,   warp_max=0.20),   # M2
+        dict(noise_max=3.40, warp_min=0.3, noise_min=0.3, spike_max=2,   warp_max=0.30),   # M3
+        dict(noise_max=4.50, warp_min=0.4, noise_min=0.4, spike_max=3,   warp_max=0.40),   # M4
+        dict(noise_max=8.90, warp_min=0.5, noise_min=8.8, spike_max=4,   warp_max=0.55),   # M5 – הכי שונה
     ]
     cfgs = []
     for lvl in ladder:
         cfg_i = deepcopy(base_cfg)
         cfg_i.noise_max = lvl["noise_max"]
         cfg_i.spike_max = lvl["spike_max"]
+        cfg_i.noise_min = lvl["noise_min"]
         cfg_i.warp_max  = lvl["warp_max"]
+        cfg_i.warp_max  = lvl["warp_min"]
+
         cfgs.append(cfg_i)
     bases, vars_, scrs = build_dataset_progressive(cfgs,
-                                                   base_len=20,
+                                                   base_len=10,
                                                    n_bases=5,
                                                    seed=123)
     plot_progressive(bases, vars_, scrs)
 
-make()
+#make()
 
 # cfg = Config()
 # t = make_dynamic_segment(25)
